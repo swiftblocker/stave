@@ -32,10 +32,13 @@ self.onmessage = async (e) => {
     const py = await boot();
     py.globals.set('drawn_b', new Uint8Array(m.drawn));
     py.globals.set('rest_b', new Uint8Array(m.rest));
-    py.globals.set('args', py.toPy({ grid_in: m.gridIn, target_wt: m.targetWt, today_draw: m.todayDraw, shape: m.shape || 'elliptical' }));
+    py.globals.set('has_front', !!m.front);
+    py.globals.set('front_b', m.front ? new Uint8Array(m.front) : new Uint8Array(0));
+    py.globals.set('args', py.toPy({ grid_in: m.gridIn, target_wt: m.targetWt, today_draw: m.todayDraw, shape: m.shape || 'elliptical', mode: m.mode || 'rules' }));
     const out = py.runPython(`
 res = app_api.analyze(bytes(drawn_b.to_py()), bytes(rest_b.to_py()), args['grid_in'],
-                      target_wt=args['target_wt'], today_draw=args['today_draw'], shape=args['shape'])
+                      target_wt=args['target_wt'], today_draw=args['today_draw'], shape=args['shape'],
+                      front_bytes=bytes(front_b.to_py()) if has_front else None, mode=args['mode'])
 res.pop('report', None)
 json.dumps(res)
 `);

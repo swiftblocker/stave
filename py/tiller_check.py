@@ -380,16 +380,18 @@ def overlay(rgb, paths, bends, out):
     img.save(out)
 
 
-def width_profile(rgb):
-    """Front profile: limb width per station (pixels) from the pale mask, tip to tip."""
+def width_profile(rgb, handle_frac=None):
+    """Front profile: limb width per station (pixels), stations from the fade to the tip like the bend
+    stations (the handle, handle_frac of the span each side of centre, is left out)."""
+    hf = HANDLE_FRAC if handle_frac is None else handle_frac
     m = wood(rgb) > 0.4
     cols = np.nonzero(m.sum(0) > 2)[0]
     if len(cols) < 20:
         return None
-    x0, x1 = cols.min(), cols.max(); cx = (x0 + x1) / 2
+    x0, x1 = cols.min(), cols.max(); cx = (x0 + x1) / 2; span = x1 - x0
     wid = m.sum(0)
     res = {}
-    for side, a, b in (('left', cx, x0), ('right', cx, x1)):
+    for side, a, b in (('left', cx - hf * span, x0), ('right', cx + hf * span, x1)):
         e = np.linspace(a, b, N_BINS + 1)
         res[side] = [int(np.median(wid[int(min(p, q)):int(max(p, q)) + 1])) for p, q in zip(e[:-1], e[1:])]
     return res
@@ -479,6 +481,119 @@ def target_curve(xy, shape='elliptical', n=240):
     pts = np.zeros((n, 2)); pts[0] = (x[0], y[0])
     pts[1:] = pts[0] + np.cumsum(np.stack([np.cos(heading), np.sin(heading)], 1) * step, 0)
     return pts
+
+
+# ---------------------------------------------------------------- strain mode (beam inverse)
+# At full draw a limb is a beam loaded only by the string: moment M(s) = F * h(s), h = distance to the
+# string line. With curvature change k (drawn minus unbraced) and width w from the front photo:
+#   EI/F = h/k,  thickness t ~ (EI/w)^(1/3),  belly strain e = k t / 2.
+# Equal strain is the tiller goal ("fair share"; "tiller equalizes strain, not radius"). Validated in
+# design/spike_fea/ (FINDINGS.md): ~4% median, ~14% worst-10% station error at 1 px trace noise.
+STRAIN_LOW, STRAIN_VERY_LOW, STRAIN_HIGH = 0.85, 0.70, 1.15   # [tool] bands around even strain
+
+
+def string_dir(rgb, tip, hook=None, toward_x=None, r0=25, r1=140):
+    """Unit vector along the string from a tip: toward the draw hook when it is known, else the darkest
+    straight ray from the tip aimed down and toward the bow's centre."""
+    tip = np.asarray(tip, float)
+    if hook is not None:
+        d = np.asarray(hook, float) - tip; return d / np.linalg.norm(d)
+    g = rgb.mean(2); best, bv = np.array([0.0, 1.0]), 1e9
+    sgn = 1 if (toward_x or rgb.shape[1] / 2) > tip[0] else -1
+    for a in np.radians(np.arange(5, 86, 1)):
+        d = np.array([sgn * np.cos(a), np.sin(a)])
+        pts = tip + np.outer(np.arange(r0, r1), d)
+        xs, ys = pts[:, 0].astype(int), pts[:, 1].astype(int)
+        ok = (xs >= 0) & (xs < rgb.shape[1]) & (ys >= 0) & (ys < rgb.shape[0])
+        if ok.sum() < (r1 - r0) * 0.8:
+            continue
+        v = np.median(g[ys[ok], xs[ok]])
+        if v < bv:
+            bv, best = v, d
+    return best
+
+
+def strain_profile(xy_drawn, xy_rest, tip, sdir, width):
+    """Per station (fade -> tip): curvature change (rad/px), moment arm (px), relative EI, relative
+    thickness and relative strain (both scaled to mid-limb stations 4-7)."""
+    fd, ad, Ld, sm = bend_profile(xy_drawn)
+    e = np.linspace(0, 1, N_BINS + 1)
+    th = np.interp(e, fd, ad)
+    if xy_rest is not None:
+        fr, ar, _, _ = bend_profile(xy_rest); th = th - np.interp(e, fr, ar)
+    k = np.abs(np.radians(np.diff(th))) / (Ld / N_BINS)
+    sl = np.linspace(0, Ld, len(sm))
+    mid = np.stack([np.interp((np.arange(N_BINS) + 0.5) / N_BINS * Ld, sl, sm[:, c]) for c in (0, 1)], 1)
+    nrm = np.array([-sdir[1], sdir[0]])
+    h = np.abs((mid - np.asarray(tip, float)) @ nrm)
+    EI = h / np.maximum(k, 1e-12)
+    w = np.maximum(np.asarray(width, float), 1.0)
+    t = (EI / w) ** (1 / 3)
+    strain = k * t / 2
+    r = lambda v: v / v[3:7].mean()
+    return {'k_per_px': k, 'h_px': h, 'EI_rel': r(EI), 't_rel': r(t), 'strain_rel': r(strain), 't_raw': t, 'strain_raw': strain}
+
+
+def strain_plan(rep, sd_key='strain'):
+    """Scrape calls from strain, same format as scrape_plan: 'more' under STRAIN_VERY_LOW, 'light' under
+    STRAIN_LOW, 'leave' over STRAIN_HIGH or on a hinge; stations 1 (fade) and 10 (tip) never called;
+    unsure stations (runs disagree, or the trace left the wood) get no call."""
+    plan = {}
+    for sd in ('left', 'right'):
+        st = rep[sd_key][sd]; calls = []
+        hinge = set(rep[sd]['hinge_candidates_station']); gap = rep[sd].get('station_gap', [0] * N_BINS)
+        for i in range(N_BINS):
+            v, spread = st['strain_rel'][i], st['strain_spread'][i]
+            if (i + 1) in hinge:
+                c = 'leave'
+            elif i in (0, N_BINS - 1) or gap[i] > GAP_MAX or spread > 0.12:
+                c = 'ok'
+            elif v < STRAIN_VERY_LOW:
+                c = 'more'
+            elif v < STRAIN_LOW:
+                c = 'light'
+            elif v > STRAIN_HIGH:
+                c = 'leave'
+            else:
+                c = 'ok'
+            calls.append(c)
+        plan[sd] = {'station_call': calls,
+                    'thickness_cut_pct': [round(float(100 * (1 - np.sqrt(min(1.0, v)))), 0) if calls[i] in ('more', 'light') else 0
+                                          for i, v in enumerate(st['strain_rel'])]}
+    plan['basis'] = 'strain: equal belly strain along each limb (beam model from the photos)'
+    plan['shape'] = 'equal strain'
+    return plan
+
+
+def strain_block(rgb, rr, base_pts, rest_pts, widths, hook=None, ppi=None, caliper=None):
+    """Strain per station for both limbs, averaged over the jitter runs. caliper = (side, inches from the
+    string groove, thickness mm) turns relative strain into percent when the grid scale is known."""
+    out = {}
+    cx = (base_pts[0][0] + base_pts[3][0]) / 2
+    for si, (side, tip_i) in enumerate((('left', 0), ('right', 3))):
+        runs = []
+        for dx, dy in JITTER:
+            pts = [(x + dx * (1 if i % 2 else -1), y + dy) for i, (x, y) in enumerate(base_pts)]
+            rp = [(x + dx * (1 if i % 2 else -1), y + dy // 3) for i, (x, y) in enumerate(rest_pts)] if rest_pts else None
+            xyd = limbs(rgb, pts)[si]; xyr = limbs(rr, rp)[si] if rr is not None else None
+            tip = np.asarray(base_pts[tip_i], float)
+            sdir = string_dir(rgb, tip, hook=hook, toward_x=cx)
+            runs.append(strain_profile(xyd, xyr, tip, sdir, widths[side]))
+        S = np.array([r['strain_rel'] for r in runs]); T = np.array([r['t_rel'] for r in runs])
+        blk = {'strain_rel': [round(float(v), 2) for v in S.mean(0)],
+               'strain_spread': [round(float(v), 2) for v in S.std(0)],
+               't_rel': [round(float(v), 2) for v in T.mean(0)],
+               'width_px': list(widths[side])}
+        if caliper and ppi and caliper[0] == side:
+            # absolute: k per inch from the grid, thickness scaled so the calipered station matches
+            r0 = runs[0]; L_in = bend_profile(limbs(rgb, base_pts)[si])[2] / ppi
+            st = int(min(N_BINS - 1, max(0, round((1 - caliper[1] / L_in) * N_BINS - 0.5))))
+            t_in = r0['t_raw'] * (caliper[2] / 25.4) / r0['t_raw'][st]
+            eps = np.mean([r['k_per_px'] for r in runs], 0) * ppi * t_in / 2
+            blk['strain_pct'] = [round(float(v * 100), 2) for v in eps]
+            blk['thickness_in'] = [round(float(v), 3) for v in t_in]
+        out[side] = blk
+    return out
 
 
 def scrape_plan(rep, shape, balance_ok, ppi):
@@ -705,7 +820,29 @@ def measure(a):
     if rep.get('grid'):
         g = rep['grid']
         bal_ok = bal_ok and all(0.97 <= g.get(k, 1) <= 1.03 for k in ('x_over_y', 'left_over_right'))
-    rep['scrape_plan'] = scrape_plan(rep, a.shape, bal_ok, ppi)
+    rep['scrape_plan_rules'] = scrape_plan(rep, a.shape, bal_ok, ppi)
+    rep['scrape_plan'] = rep['scrape_plan_rules']
+    if rep.get('front_width_px') and rr is not None:
+        hook = None
+        if ppi and getattr(a, 'draw_in', None):
+            lh, rh = np.asarray(base_pts[1], float), np.asarray(base_pts[2], float)
+            c = (lh + rh) / 2; u = (rh - lh) / np.linalg.norm(rh - lh); nrm = np.array([-u[1], u[0]])
+            if np.dot(nrm, (np.asarray(base_pts[0], float) + np.asarray(base_pts[3], float)) / 2 - c) < 0:
+                nrm = -nrm                                     # toward the tips: the string side
+            hook = c + nrm * a.draw_in * ppi
+        cal = None
+        if getattr(a, 'caliper', None):
+            sd, inch, mm = a.caliper.split(','); cal = (sd, float(inch), float(mm))
+        rep['strain'] = strain_block(rgb, rr, base_pts, rest_pts, rep['front_width_px'], hook=hook, ppi=ppi, caliper=cal)
+        rep['scrape_plan_strain'] = strain_plan(rep)
+        rep['scrape_plan_strain']['units'] = rep['scrape_plan_rules']['units']
+        for sd in ('left', 'right'):
+            rep['scrape_plan_strain'][sd]['spans'] = rep['scrape_plan_rules'][sd]['spans']
+            rep['scrape_plan_strain'][sd]['shortfall_pct_of_mid'] = [None] * N_BINS
+        if getattr(a, 'mode', 'rules') == 'strain':
+            rep['scrape_plan'] = rep['scrape_plan_strain']
+    elif getattr(a, 'mode', 'rules') == 'strain':
+        raise ValueError('strain mode needs the unbraced photo and a front photo')
     draw_plan(rgb, paths, rep['scrape_plan'], os.path.join(a.out, 'scrape_map.png'))
     json.dump(rep, open(os.path.join(a.out, 'report.json'), 'w'), indent=1)
     lines = [f"basis: {rep['bend_basis']}"]
@@ -723,7 +860,13 @@ def measure(a):
         lines.append(f"front width in (handle->tip): {rep['front_width_in']}")
     if rep.get('front_width_px'):
         lines.append(f"front width px (handle->tip): {rep['front_width_px']}")
-    lines.append(plan_text(rep['scrape_plan']))
+    if rep.get('strain'):
+        for sd in ('left', 'right'):
+            b = rep['strain'][sd]
+            lines.append(f"STRAIN {sd.upper()} (vs mid-limb): " + ' '.join(f"{i + 1}:{v}" for i, v in enumerate(b['strain_rel'])))
+            lines.append(f"   thickness vs mid: " + ' '.join(f"{v}" for v in b['t_rel']) + (f"   strain %: {b['strain_pct']}" if 'strain_pct' in b else ''))
+        lines.append(plan_text(rep['scrape_plan_strain']))
+    lines.append(plan_text(rep['scrape_plan']) if rep['scrape_plan'] is rep['scrape_plan_rules'] else '(plan above drives the result: strain mode)')
     txt = '\n'.join(lines)
     open(os.path.join(a.out, 'report.txt'), 'w').write(txt + '\n')
     print(txt)
@@ -759,6 +902,9 @@ if __name__ == '__main__':
     m.add_argument('--rest'); m.add_argument('--rest-pts', default='auto'); m.add_argument('--front'); m.add_argument('--out', default='tiller_out')
     m.add_argument('--ntn', type=float, help='nock-to-nock length in inches, to convert tip drop to inches')
     m.add_argument('--shape', choices=['elliptical', 'circular'], default='elliptical', help='target: elliptical (Santana default, parallel-then-taper limbs) or circular (pyramid / strong width taper)')
+    m.add_argument('--mode', choices=['rules', 'strain'], default='rules', help='which scrape plan drives the result; strain needs --rest and --front')
+    m.add_argument('--draw-in', type=float, help='draw length on the tree (in), aims the string at the draw hook for strain mode')
+    m.add_argument('--caliper', help='side,inches_from_tip,thickness_mm (e.g. left,8,11.5): strain in percent (needs --grid-in)')
     m.add_argument('--grid', action='store_true', help='a gridded backdrop is behind the bow')
     m.add_argument('--grid-in', type=float, help='size of one grid square in inches (gives px per inch)')
     m.add_argument('--line-px', type=int, default=3, help='opening size (px) that cleans anti-aliased line edges')

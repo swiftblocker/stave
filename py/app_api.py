@@ -1,6 +1,9 @@
 """The phone app's single entry point: two photos in, the result screen's data out.
 
-analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, shape='elliptical')
+analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, shape='elliptical',
+        front_bytes=None, mode='rules', caliper=None)
+mode 'strain' (needs front_bytes) drives the steps from the beam-model strain plan; the rules plan is
+still computed and returned as `alt` so the two can be compared. caliper = 'side,inches,mm'.
 returns a JSON-able dict:
   ok        False with `error` (one plain retake line) when the photo cannot be trusted
   stop      True when a hinge is suspected (the app shows STOP and no scrape steps)
@@ -96,10 +99,10 @@ class _Limbs:
         return nr if np.dot(nr, mc - p) >= 0 else -nr       # toward the string: the side to scrape
 
 
-def _zones(rep, sd, length_in):
+def _zones(rep, sd, length_in, plan_key='scrape_plan'):
     """Scrape runs (call, near, far) in whole inches from the string groove, nearest first. Station
     i covers (i/10..(i+1)/10) of the limb from the fade; the tip end is length_in from the groove."""
-    calls = rep['scrape_plan'][sd]['station_call']; out = []; i = 0
+    calls = rep[plan_key][sd]['station_call']; out = []; i = 0
     while i < 10:
         j = i
         while j + 1 < 10 and calls[j + 1] == calls[i]:
@@ -145,17 +148,25 @@ def _draw(im, geo, plan_zones, order, stiff, ghost=False, marks=True):
     return im.crop((0, top, W, bot))
 
 
-def analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, shape='elliptical'):
+def analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, shape='elliptical',
+            front_bytes=None, mode='rules', caliper=None):
     tc._CACHE.clear(); tc._TRACE.clear()
+    if mode == 'strain' and not front_bytes:
+        return {'ok': False, 'error': 'Strain mode needs the front photo too.'}
     try:
         drawn, rest = _open(drawn_bytes), _open(rest_bytes)
+        front = _open(front_bytes) if front_bytes else None
     except ValueError as e:
         return {'ok': False, 'error': str(e).capitalize() + '.'}
     with tempfile.TemporaryDirectory() as tmp:
         dp, rp = os.path.join(tmp, 'drawn.png'), os.path.join(tmp, 'rest.png')
         drawn.save(dp); rest.save(rp)
-        a = SimpleNamespace(drawn=dp, drawn_pts='auto', rest=rp, rest_pts='auto', front=None, out=tmp,
-                            ntn=None, grid=True, grid_in=float(grid_in), line_px=3, shape=shape)
+        fp = None
+        if front is not None:
+            fp = os.path.join(tmp, 'front.png'); front.save(fp)
+        a = SimpleNamespace(drawn=dp, drawn_pts='auto', rest=rp, rest_pts='auto', front=fp, out=tmp,
+                            ntn=None, grid=True, grid_in=float(grid_in), line_px=3, shape=shape,
+                            mode=mode, draw_in=float(today_draw) if today_draw else None, caliper=caliper)
         try:
             import contextlib
             with contextlib.redirect_stdout(io.StringIO()):
@@ -181,6 +192,23 @@ def analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, s
     order = sorted(has, key=lambda sd: 0 if sd == stiff else 1)
     hinge = any(rep[sd]['hinge_candidates_station'] for sd in ('left', 'right'))
 
+    def steps_for(plan_key):
+        z = {sd: _zones(rep, sd, lengths[sd], plan_key) for sd in ('left', 'right')}
+        out = []
+        for sd in sorted([x for x in ('left', 'right') if z[x]], key=lambda x: 0 if x == stiff else 1):
+            st = STROKES['stiff' if sd == stiff else 'normal']
+            out.append({'limb': sd, 'first': sd == stiff, 'pencil': [z[sd][0][1], z[sd][-1][2]],
+                        'zones': [{'call': c, 'near': a0, 'far': b0, 'strokes': st[c]} for c, a0, b0 in z[sd]]})
+        return out
+    alt_key = 'scrape_plan_rules' if mode == 'strain' else 'scrape_plan_strain'
+    alt = {'mode': 'rules' if mode == 'strain' else 'strain', 'steps': steps_for(alt_key)} if alt_key in rep else None
+    strain = {sd: {k: rep['strain'][sd][k] for k in ('strain_rel', 't_rel') if k in rep['strain'][sd]}
+              for sd in ('left', 'right')} if rep.get('strain') else None
+    if strain and caliper:
+        for sd in ('left', 'right'):
+            if 'strain_pct' in rep['strain'][sd]:
+                strain[sd]['strain_pct'] = rep['strain'][sd]['strain_pct']
+
     steps = []
     for sd in order:
         s = STROKES['stiff' if sd == stiff else 'normal']
@@ -197,7 +225,7 @@ def analyze(drawn_bytes, rest_bytes, grid_in, target_wt=None, today_draw=None, s
               'ghost': _url(_draw(drawn, geo, plan_zones, order, stiff, ghost=True)),
               'rest': _url(_draw(rest, rest_geo, rest_zones, order, None)),
               'stop': _url(_draw(drawn, geo, plan_zones, order, stiff, marks=False))}
-    return {'ok': True, 'stop': hinge, 'steps': [] if hinge else steps,
+    return {'ok': True, 'stop': hinge, 'steps': [] if hinge else steps, 'mode': mode, 'alt': alt, 'strain': strain,
             'balance': {'stiff': stiff, 'pct': pct},
             'set_in': rep.get('unbraced', {}).get('mean_tip_drop_in'),
             'today_draw': today_draw, 'target_wt': target_wt,

@@ -5,6 +5,11 @@
   const q = new URLSearchParams(location.search);
   const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
   const screens = $$('[data-screen]'), result = $('#result'), again = $('#again');
+  // ?mode=strain: the beam-model strain plan drives the steps and a third (front) photo is taken.
+  // Kept per device once set, so the owner's phone stays in strain mode for comparison.
+  if (q.has('mode')) localStorage.setItem('stave.mode', q.get('mode') === 'strain' ? 'strain' : 'rules');
+  const MODE = localStorage.getItem('stave.mode') || 'rules';
+  if (MODE === 'strain') { $('#t-p1').textContent = 'Photo 1 of 3'; $('#t-p2').textContent = 'Photo 2 of 3'; }
   const num = v => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
   const round1 = n => Math.round(n * 10) / 10;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -45,7 +50,7 @@
   const show = () => {
     let id = (location.hash || '#bows').slice(1);
     if (!screens.some(s => s.id === id)) { id = 'bows'; history.replaceState(null, '', '#bows'); }
-    if (id !== 'photo2') { clearTimeout(measureTimer); $('.measuring').hidden = true; $('#photo2 .shoot').hidden = false; }
+    if (id !== 'photo2' && id !== 'photo3') { clearTimeout(measureTimer); $$('.measuring').forEach(m => { m.hidden = true; }); $$('#photo2 .shoot, #photo3 .shoot').forEach(x => { x.hidden = false; }); }
     if (id === 'result') resetSteps();
     if (id === 'check' || id === 'photo1') warm();
     if (id === 'bows') listBows();
@@ -273,7 +278,7 @@
     worker = new Worker('worker.js');
     worker.postMessage({ type: 'warm' });
   };
-  const measure = (drawn, rest) => new Promise((resolve, reject) => {
+  const measure = (drawn, rest, front) => new Promise((resolve, reject) => {
     warm(); const id = ++jobs;
     const on = (e) => {
       if (e.data.id !== id) return;
@@ -281,32 +286,36 @@
       e.data.type === 'result' ? resolve(e.data.data) : reject(new Error(e.data.message));
     };
     worker.addEventListener('message', on);
-    worker.postMessage({ type: 'analyze', id, drawn, rest, gridIn: bow.grid, targetWt: bow.wt, todayDraw: today() }, [drawn, rest]);
+    const transfer = front ? [drawn, rest, front] : [drawn, rest];
+    worker.postMessage({ type: 'analyze', id, drawn, rest, front, mode: front ? MODE : 'rules', gridIn: bow.grid, targetWt: bow.wt, todayDraw: today() }, transfer);
   });
 
-  // ---- photo inputs: photo 1 is kept; photo 2 measures both, then shows the result
-  const meas = $('.measuring'), bad = $('#bad');
-  let photo1 = null;
+  // ---- photo inputs: photos are kept until the last one; the last one measures, then shows the result
+  let photo1 = null, photo2 = null;
+  const shotsNeeded = () => MODE === 'strain' ? 3 : 2;
   $$('.shoot input').forEach(inp => inp.addEventListener('change', async () => {
     if (!inp.files.length) return;
-    const file = inp.files[0], next = inp.dataset.next;
+    const file = inp.files[0], screen = inp.closest('[data-screen]');
     inp.value = '';                                  // the same file can be chosen again
-    if (!('measure' in inp.dataset)) { photo1 = file; location.hash = next; return; }
-    if (!photo1) { location.hash = '#photo1'; return; }
-    bad.classList.remove('on');
-    meas.hidden = false; inp.closest('.shoot').hidden = true;
+    if (screen.id === 'photo1') { photo1 = file; location.hash = '#photo2'; return; }
+    if (screen.id === 'photo2' && shotsNeeded() === 3) { photo2 = file; location.hash = '#photo3'; return; }
+    if (screen.id === 'photo2') photo2 = file;
+    if (!photo1 || !photo2) { location.hash = '#photo1'; return; }
+    const front = screen.id === 'photo3' ? file : null;
+    const badEl = screen.querySelector('.err'), measEl = screen.querySelector('.measuring'), shoot = inp.closest('.shoot');
+    badEl.classList.remove('on'); measEl.hidden = false; shoot.hidden = true;
     try {
-      const d = await measure(await photo1.arrayBuffer(), await file.arrayBuffer());
-      if (location.hash !== '#photo2') return;       // he left while it measured
-      if (!d.ok) { bad.textContent = d.error; bad.classList.add('on'); return; }
+      const d = await measure(await photo1.arrayBuffer(), await photo2.arrayBuffer(), front ? await front.arrayBuffer() : null);
+      if (location.hash !== '#' + screen.id) return;  // he left while it measured
+      if (!d.ok) { badEl.textContent = d.error; badEl.classList.add('on'); return; }
       render(d);
       await saveCheck(d);
-      location.hash = next;
+      location.hash = '#result';
     } catch (err) {
-      bad.textContent = 'Could not measure. Retake both photos.'; bad.classList.add('on');
+      badEl.textContent = 'Could not measure. Retake the photos.'; badEl.classList.add('on');
       console.error(err);
     } finally {
-      meas.hidden = true; inp.closest('.shoot').hidden = false;
+      measEl.hidden = true; shoot.hidden = false;
     }
   }));
 
@@ -337,6 +346,7 @@
     if (location.hash === '#result' && b.last) { const c = await get('checks', b.last); if (c) render(c.data); }
   })();
 
+  const meas = $('#photo2 .measuring'), bad = $('#bad');
   // ---- demo states
   if (q.has('bad')) bad.classList.add('on');
   if (q.has('filled') || q.has('set')) {
@@ -353,10 +363,10 @@
   caps(); show();
   if (q.has('measuring')) { meas.hidden = false; $('#photo2 .shoot').hidden = true; }
   // test hook: window.staveMeasure(urlDrawn, urlRest) runs the real measuring on two image URLs
-  window.staveMeasure = async (u1, u2) => {
-    const [a, b] = await Promise.all([u1, u2].map(async u => (await fetch(u)).arrayBuffer()));
-    const t0 = performance.now(); const d = await measure(a, b);
+  window.staveMeasure = async (u1, u2, u3) => {
+    const [a, b, c] = await Promise.all([u1, u2, u3].map(async u => u ? (await fetch(u)).arrayBuffer() : null));
+    const t0 = performance.now(); const d = await measure(a, b, c);
     if (d.ok) { render(d); await saveCheck(d); location.hash = '#result'; }
-    return { ms: Math.round(performance.now() - t0), ok: d.ok, error: d.error, stop: d.stop, steps: d.steps, balance: d.balance, set_in: d.set_in };
+    return { ms: Math.round(performance.now() - t0), ok: d.ok, error: d.error, stop: d.stop, mode: d.mode, steps: d.steps, alt: d.alt, strain: d.strain, balance: d.balance, set_in: d.set_in };
   };
 })();
