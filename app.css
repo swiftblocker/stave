@@ -156,5 +156,11 @@ html:not(.js) .go { position: static; transform: none; width: 100%; margin-top: 
 .bow-row .stopped { color: var(--color-error); font-weight: 600; }
 .rule { --a: 1; --b: 1; }
 
-.del { justify-self: start; margin-top: var(--space-xl); color: var(--color-muted); }
-.del.armed { color: var(--color-error); font-weight: 600; }
+/* swipe left on a bow row to show Delete */
+.bows li { position: relative; overflow: hidden; border-radius: var(--radius-card); }
+.bows .bow-row { position: relative; z-index: var(--z-raised); touch-action: pan-y; transition: transform var(--dur-short) var(--ease-out), background-color var(--dur-micro) var(--ease-out); }
+.bows li.dragging .bow-row { transition: none; }
+.bows li.open .bow-row, .bows li:has(.swipe-del:focus-visible) .bow-row { transform: translateX(calc(-1 * var(--swipe))); }
+.bows { --swipe: 96px; }
+.swipe-del { position: absolute; top: 0; right: 0; bottom: 0; width: var(--swipe); border: 0; background: var(--color-stop); color: var(--color-stop-ink); font-family: var(--font-display); font-weight: 800; font-size: var(--text-lg); cursor: pointer; }
+.swipe-del:focus-visible { outline: 3px solid var(--color-focus); outline-offset: -4px; }

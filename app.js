@@ -49,7 +49,6 @@
     if (id === 'result') resetSteps();
     if (id === 'check' || id === 'photo1') warm();
     if (id === 'bows') listBows();
-    disarm(); delBtn.hidden = !bow.id;
     screens.forEach(s => s.classList.toggle('is-on', s.id === id));
     window.scrollTo(0, 0);
     const focusEl = id === 'result' && result.classList.contains('is-stop') ? $('#stopmsg') : $(`#${id} h1`);
@@ -88,24 +87,44 @@
     $$('#new input').forEach(i => { i.value = ''; }); $('#new [data-form]')._check();
     location.hash = '#check';
   });
-  // delete: two taps, the second within 4 s; removes the bow and every saved check (photos too)
-  const delBtn = $('#delbow'); let armTimer = 0;
-  const disarm = () => { clearTimeout(armTimer); delBtn.classList.remove('armed'); delBtn.textContent = 'Delete bow'; };
-  delBtn.addEventListener('click', async () => {
-    if (!bow.id) return;
-    if (!delBtn.classList.contains('armed')) {
-      delBtn.classList.add('armed'); delBtn.textContent = `Tap again to delete ${bow.name}`;
-      armTimer = setTimeout(disarm, 4000); return;
-    }
-    disarm();
-    const id = bow.id;
+  // delete a bow with every saved check (photos too)
+  const deleteBow = async (id) => {
     const checks = ((await all('checks')) || []).filter(c => c.bow === id);
     await tx('checks', 'readwrite', st => { checks.forEach(c => st.delete(c.id)); });
     await tx('bows', 'readwrite', st => st.delete(id));
-    localStorage.removeItem('stave.current');
-    bow = { id: null, name: '', wt: 50, dr: 28, grid: 2, stop: false, last: null };
-    location.hash = '#bows';
-  });
+    if (bow.id === id) { localStorage.removeItem('stave.current'); bow = { id: null, name: '', wt: 50, dr: 28, grid: 2, stop: false, last: null }; }
+  };
+
+  // swipe left on a bow row: the row slides aside and shows Delete; one row open at a time
+  const SWIPE = 96;
+  const closeRows = (except) => $$('.bows li.open').forEach(li => { if (li !== except) li.classList.remove('open'); });
+  const swipeable = (li, row) => {
+    let x0 = 0, y0 = 0, dx = 0, mode = null, id = null;
+    row.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      x0 = e.clientX; y0 = e.clientY; dx = 0; mode = null; id = e.pointerId;
+    });
+    row.addEventListener('pointermove', e => {
+      if (e.pointerId !== id) return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (!mode) { if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { mode = 'swipe'; row.setPointerCapture(id); li.classList.add('dragging'); closeRows(li); } else if (Math.abs(my) > 8) mode = 'scroll'; }
+      if (mode !== 'swipe') return;
+      const base = li.classList.contains('open') ? -SWIPE : 0;
+      dx = Math.max(-SWIPE * 1.25, Math.min(0, base + mx));
+      row.style.transform = `translateX(${dx}px)`;
+    });
+    const end = e => {
+      if (e.pointerId !== id) return;
+      id = null;
+      if (mode === 'swipe') {
+        li.classList.remove('dragging'); row.style.transform = '';
+        li.classList.toggle('open', dx < -SWIPE / 2);
+        row.dataset.swiped = '1'; setTimeout(() => { delete row.dataset.swiped; }, 0);
+      }
+    };
+    row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end);
+  };
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('.bows li.open')) closeRows(); });
 
   const listBows = async () => {
     const bows = ((await all('bows')) || []).sort((a, b) => (b.updated || 0) - (a.updated || 0));
@@ -118,12 +137,18 @@
       const txt = el('span'); txt.append(el('b', null, b.name),
         b.stop ? el('span', 'stopped', 'Stopped: may be hinging') : el('span', null, b.summary || 'No checks yet'));
       a.append(img, txt);
+      const li = el('li');
+      const del = el('button', 'swipe-del', 'Delete'); del.type = 'button'; del.setAttribute('aria-label', `Delete ${b.name}`);
+      del.addEventListener('click', async () => { await deleteBow(b.id); listBows(); });
       a.addEventListener('click', async (ev) => {
-        ev.preventDefault(); useBow(b);
+        ev.preventDefault();
+        if (a.dataset.swiped) return;                       // the end of a swipe is not a tap
+        if (li.classList.contains('open')) { li.classList.remove('open'); return; }
+        useBow(b);
         const last = b.last && await get('checks', b.last);
         if (last) { render(last.data); location.hash = '#result'; } else location.hash = '#check';
       });
-      const li = el('li'); li.append(a); ul.append(li);
+      li.append(a, del); swipeable(li, a); ul.append(li);
     }
   };
   const today = () => num($('#c-dr').value) || 20;
