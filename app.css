@@ -155,3 +155,6 @@ html:not(.js) .go { position: static; transform: none; width: 100%; margin-top: 
 .is-stop .stop-clear { display: inline-block; justify-self: start; }
 .bow-row .stopped { color: var(--color-error); font-weight: 600; }
 .rule { --a: 1; --b: 1; }
+
+.del { justify-self: start; margin-top: var(--space-xl); color: var(--color-muted); }
+.del.armed { color: var(--color-error); font-weight: 600; }

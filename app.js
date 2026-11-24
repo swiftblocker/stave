@@ -49,6 +49,7 @@
     if (id === 'result') resetSteps();
     if (id === 'check' || id === 'photo1') warm();
     if (id === 'bows') listBows();
+    disarm(); delBtn.hidden = !bow.id;
     screens.forEach(s => s.classList.toggle('is-on', s.id === id));
     window.scrollTo(0, 0);
     const focusEl = id === 'result' && result.classList.contains('is-stop') ? $('#stopmsg') : $(`#${id} h1`);
@@ -87,6 +88,25 @@
     $$('#new input').forEach(i => { i.value = ''; }); $('#new [data-form]')._check();
     location.hash = '#check';
   });
+  // delete: two taps, the second within 4 s; removes the bow and every saved check (photos too)
+  const delBtn = $('#delbow'); let armTimer = 0;
+  const disarm = () => { clearTimeout(armTimer); delBtn.classList.remove('armed'); delBtn.textContent = 'Delete bow'; };
+  delBtn.addEventListener('click', async () => {
+    if (!bow.id) return;
+    if (!delBtn.classList.contains('armed')) {
+      delBtn.classList.add('armed'); delBtn.textContent = `Tap again to delete ${bow.name}`;
+      armTimer = setTimeout(disarm, 4000); return;
+    }
+    disarm();
+    const id = bow.id;
+    const checks = ((await all('checks')) || []).filter(c => c.bow === id);
+    await tx('checks', 'readwrite', st => { checks.forEach(c => st.delete(c.id)); });
+    await tx('bows', 'readwrite', st => st.delete(id));
+    localStorage.removeItem('stave.current');
+    bow = { id: null, name: '', wt: 50, dr: 28, grid: 2, stop: false, last: null };
+    location.hash = '#bows';
+  });
+
   const listBows = async () => {
     const bows = ((await all('bows')) || []).sort((a, b) => (b.updated || 0) - (a.updated || 0));
     if (q.has('empty') || q.has('demo') && !bows.length) return;
