@@ -1,0 +1,33 @@
+:root {
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.8125rem; --text-sm: 0.9375rem; --text-md: 1.0625rem; --text-lg: 1.25rem; --text-xl: 1.5rem; --text-2xl: 2rem; --text-3xl: 2.75rem;
+  --text-display-s: 2rem; --text-display: 2.75rem; --text-section: 1.25rem; --text-title: 1.0625rem; --text-lead: 1.0625rem;
+  --text-mark: 3.25rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --color-error: oklch(66% 0.19 29); --color-success: oklch(76% 0.17 145);
+  --container: 30rem; --gutter: 16px; --gap-columns: 12px; --section-gap-s: 24px; --section-gap: 32px; --section-gap-l: 48px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* graphite shop, bare hickory, lumber crayon */
+  --color-paper: oklch(22.5% 0.008 95);
+  --color-paper-2: oklch(27.5% 0.009 95);
+  --color-paper-3: oklch(33% 0.01 95);
+  --color-ink: oklch(94% 0.024 85);
+  --color-ink-2: oklch(87% 0.045 80);
+  --color-muted: oklch(74% 0.018 85);
+  --color-rule: oklch(55% 0.012 90);
+  --color-accent: oklch(75% 0.17 145);
+  --color-accent-2: oklch(87% 0.1 145);
+  --color-accent-ink: oklch(19% 0.03 145);
+  --color-stop: oklch(50% 0.19 28);
+  --color-stop-ink: oklch(98% 0.01 28);
+  --color-focus: oklch(89% 0.16 98);
+
+  --font-display: "Big Shoulders Text", "Arial Narrow", sans-serif;
+  --font-body: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: var(--font-body);
+  --radius-card: 6px; --radius-pill: 999px; --rule-hair: 1px; --shadow-card: none;
+  --tracking-display: 0;
+  --hit: 56px;
+}

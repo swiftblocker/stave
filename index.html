@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1f1b">
+<title>Stave</title>
+<meta name="description" content="Photograph your bow on the tiller tree and see where to scrape.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Du+OJKJSbdUgz5nrHeWWINvez6XKDDU/tyj/5c2uvwo=' 'wasm-unsafe-eval'; worker-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Stave">
+<link rel="stylesheet" href="app.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<main class="app">
+
+<!-- 1. bows (home) -->
+<section class="screen" id="bows" data-screen aria-labelledby="t-bows">
+  <header class="bar"><span></span><h1 id="t-bows">Stave</h1><span></span></header>
+  <ul class="bows" hidden></ul>
+  <div class="empty">
+    <p class="say s">No bows yet.</p>
+    <p>Add one to start.</p>
+  </div>
+  <a class="go" href="#new">New bow</a>
+</section>
+
+<!-- 2. new bow -->
+<section class="screen" id="new" data-screen aria-labelledby="t-new">
+  <header class="bar"><a class="back" href="#bows" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></a><h1 id="t-new">New bow</h1><span></span></header>
+  <form class="form" data-form>
+    <div class="field"><label for="f-name">Name</label><div class="in"><input class="word" id="f-name" autocomplete="off" required></div></div>
+    <div class="pair">
+      <div class="field"><label for="f-wt">Target weight</label><div class="in"><input id="f-wt" inputmode="decimal" required data-num="10-150"><span class="unit">lb</span></div></div>
+      <div class="field"><label for="f-dr">Target draw</label><div class="in"><input id="f-dr" inputmode="decimal" required data-num="15-34"><span class="unit">in</span></div></div>
+    </div>
+    <div class="field"><label for="f-grid">One grid square on your board</label><div class="in"><input id="f-grid" inputmode="decimal" required data-num="0.25-12"><span class="unit">in</span></div></div>
+    <a class="go" href="#check" aria-disabled="true">Save</a>
+  </form>
+</section>
+
+<!-- 3. check: today's numbers -->
+<section class="screen" id="check" data-screen aria-labelledby="t-check">
+  <header class="bar"><a class="back" href="#bows" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></a><h1 id="t-check">Hickory #1</h1><span></span></header>
+  <form class="form" data-form>
+    <p class="say s">Bow on the tree.<br>Read the scale.</p>
+    <div class="pair">
+      <div class="field"><label for="c-wt">Scale now</label><div class="in"><input id="c-wt" inputmode="decimal" required data-num="1-150"><span class="unit">lb</span></div></div>
+      <div class="field"><label for="c-dr">Drawn to</label><div class="in"><input id="c-dr" inputmode="decimal" required data-num="1-34"><span class="unit">in</span></div></div>
+    </div>
+    <p class="target">Target: <b><span id="t-wt">50</span> lb at <span id="t-dr">28</span> in</b>. Never pull past <b><span class="cap-wt">50</span> lb</b>.</p>
+    <p class="say s set-h">Set check</p>
+    <div class="pair">
+      <div class="field"><label for="s-before">Before 20 pulls, at <span class="cap-dr">20</span> in</label><div class="in"><input id="s-before" inputmode="decimal" required data-num="1-150"><span class="unit">lb</span></div></div>
+      <div class="field"><label for="s-after">After 20 pulls, at <span class="cap-dr">20</span> in</label><div class="in"><input id="s-after" inputmode="decimal" required data-num="1-150"><span class="unit">lb</span></div></div>
+    </div>
+    <div class="err" id="setwarn" aria-live="polite"><p>Lost <b class="v-drop">2 lb</b> = set. Drop target to <b class="v-new">48 lb</b>.</p><button class="quiet strong" type="button" id="use-new">Use <span class="v-new">48 lb</span></button></div>
+    <a class="go" href="#photo1" aria-disabled="true">Take photos</a>
+  </form>
+</section>
+
+<!-- 4. guided photo 1 -->
+<section class="screen" id="photo1" data-screen aria-labelledby="t-p1">
+  <header class="bar"><a class="back" href="#check" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></a><h1 id="t-p1">Photo 1 of 2</h1><span></span></header>
+  <p class="say s">Unstrung, on the rack.</p>
+  <div class="finder" aria-hidden="true"><div class="grid"></div>
+    <svg viewBox="0 0 400 300" preserveAspectRatio="none"><path class="guide" d="M24 150 L376 150" stroke-width="3" stroke-dasharray="10 8"/><path class="guide" d="M24 136 v28 M376 136 v28" stroke-width="3"/></svg>
+  </div>
+  <p class="count">Hold the phone sideways. Stand in your spot, square to the grid. Same end of the bow on the left as last time.</p>
+  <label class="shoot"><input type="file" accept="image/*" aria-label="Take photo 1" data-next="#photo2"></label>
+</section>
+
+<!-- 5. guided photo 2 -->
+<section class="screen" id="photo2" data-screen aria-labelledby="t-p2">
+  <header class="bar"><a class="back" href="#photo1" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></a><h1 id="t-p2">Photo 2 of 2</h1><span></span></header>
+  <p class="say s">Drawn on the tree.</p>
+  <div class="finder" aria-hidden="true"><div class="grid"></div>
+    <svg viewBox="0 0 400 300" preserveAspectRatio="none"><path class="guide" d="M28 220 Q200 40 372 220" fill="none" stroke-width="3" stroke-dasharray="10 8"/></svg>
+  </div>
+  <p class="err" role="alert" id="bad">Camera tilted. Stand square to the grid and retake.</p>
+  <p class="count">Same spot, phone sideways. Never past <b><span class="cap-wt">50</span> lb</b> on the scale.</p>
+  <label class="shoot"><input type="file" accept="image/*" aria-label="Take photo 2" data-next="#result" data-measure></label>
+  <p class="measuring" role="status" hidden><span class="say s">Measuring</span><span class="bar-run" aria-hidden="true"></span></p>
+</section>
+
+<!-- 6. result -->
+<section class="screen" id="result" data-screen aria-labelledby="t-res">
+  <header class="bar"><a class="back" href="#bows" aria-label="Back to bows"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></a><h1 id="t-res">Hickory #1</h1><span></span></header>
+  <p class="stop" tabindex="-1" id="stopmsg">Stop. This bow may be hinging. Do not pull it further.</p>
+  <button class="quiet strong stop-clear" type="button" id="clearstop">Checked it. Carry on</button>
+  <div class="shots" role="region" tabindex="0" aria-label="Marked photos, swipe for the unstrung bow">
+    <figure class="shot" id="shot-drawn"></figure>
+    <figure class="shot" id="shot-rest"></figure>
+  </div>
+  <div class="tools"><span class="dots" aria-hidden="true"><i class="on"></i><i></i></span><button class="quiet" type="button" id="ghost" aria-pressed="false">Target bend</button><button class="quiet" type="button" id="save">Save image</button></div>
+  <p class="say do">Scrape green.<br>Then 20 pulls.</p>
+  <div class="side"><svg viewBox="0 0 72 40" aria-hidden="true"><path d="M4 34 Q36 -8 68 34" fill="none" stroke="var(--color-ink-2)" stroke-width="7" stroke-linecap="round"/><path d="M11 25 Q36 -1 61 25" fill="none" stroke="var(--color-accent)" stroke-width="3"/><path d="M4 36 H68" stroke="var(--color-muted)" stroke-width="1.5"/></svg>
+    <p>Scrape only the <b>side facing the string</b>. Measure from the string groove at the tip.</p></div>
+  <ol class="steps">
+    <li class="step first"><span class="n">1</span><h2>Left limb, on your left as you face the tree. Pencil a line at each number.</h2>
+      <div class="marks">5<span class="rule"><i></i><i class="l"></i><em>8</em></span>11<small>in</small></div>
+      <div class="zones"><span><b>5 to 8 in</b><em>25 scraper strokes</em></span><span class="l"><b>8 to 11 in</b><em>12 scraper strokes</em></span></div>
+      <button class="done" type="button" aria-pressed="false" aria-label="Step 1 done">Done</button></li>
+    <li class="step"><span class="n">2</span><h2>Right limb. Pencil a line at each number.</h2>
+      <div class="marks">5<span class="rule"><i></i><i class="l"></i><em>8</em></span>11<small>in</small></div>
+      <div class="zones"><span><b>5 to 8 in</b><em>20 scraper strokes</em></span><span class="l"><b>8 to 11 in</b><em>10 scraper strokes</em></span></div>
+      <button class="done" type="button" aria-pressed="false" aria-label="Step 2 done">Done</button></li>
+    <li class="step pull"><span class="n">3</span><h2>Pull 20 times to <span class="cap-dr">20</span> in. Stop if the scale passes <span class="cap-wt">50</span> lb.</h2>
+      <button class="done" type="button" aria-pressed="false" aria-label="Step 3 done">Done</button></li>
+  </ol>
+  <a class="go" href="#check" id="again" hidden>New photos</a>
+</section>
+
+</main>
+<script src="app.js"></script>
+</body>
+</html>
